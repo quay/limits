@@ -3,8 +3,11 @@
 package limits
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"runtime"
+	"time"
 )
 
 // CPU reports the unit-less time quota the process has per period.
@@ -27,4 +30,27 @@ func Memory() (high, max int64, err error) {
 	default:
 	}
 	return -1, -1, nil
+}
+
+type EventKind uint
+
+const (
+	_ EventKind = iota
+	MemoryEvents
+)
+
+func Events(ctx context.Context, kind EventKind, threshold time.Duration) (<-chan struct{}, error) {
+	switch runtime.GOOS {
+	case `linux`:
+		switch kind {
+		case MemoryEvents:
+			return memoryPSI(ctx, threshold)
+		default:
+			return nil, fmt.Errorf("limits: unknown event kind: %v", kind)
+		}
+	default:
+	}
+	out := make(chan struct{})
+	close(out)
+	return out, nil
 }

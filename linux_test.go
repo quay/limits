@@ -4,9 +4,11 @@
 package limits
 
 import (
+	"context"
 	"io/fs"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 type cgTestcase struct {
@@ -202,4 +204,34 @@ func TestMemory(t *testing.T) {
 			tc.Run(t)
 		}
 	})
+}
+
+func TestMemoryPSI(t *testing.T) {
+	t.Skip("TODO: write some deterministic tests")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	ev, err := memoryPSI(ctx, 150*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		var bs [][]byte
+		tick := time.NewTicker(10 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			_ = bs
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+			bs = append(bs, make([]byte, 4*1024*1024)) // allocate 4MiB chunks for a while
+		}
+	}()
+	select {
+	case <-ev:
+		t.Logf("event fired")
+	case <-ctx.Done():
+		t.Error(ctx.Err())
+	}
 }
