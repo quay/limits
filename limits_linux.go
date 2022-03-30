@@ -31,9 +31,62 @@ import (
 	"bytes"
 	"errors"
 	"io/fs"
+	"os"
+	"strings"
 )
 
-var errNoQuota = errors.New("no quota")
+var (
+	errNoQuota = errors.New("no quota")
+	errNeedV2  = errors.New("cgroupv2 needed")
+
+	v2 struct {
+		Root     string
+		Path     string
+		Enabled  bool
+		ReadOnly bool
+	}
+)
+
+func init() {
+	// interrogate the running process at startup.
+	b, err := os.ReadFile(`/proc/mounts`)
+	if err != nil {
+		return
+	}
+	s := bufio.NewScanner(bytes.NewReader(b))
+	const (
+		kind  = 0
+		mount = 1
+		opts  = 3
+	)
+	for s.Scan() {
+		fs := strings.Fields(s.Text())
+		if fs[kind] != "cgroup2" {
+			continue
+		}
+		v2.Enabled = true
+		if v2.Root != "" && strings.HasPrefix(v2.Root, "/sys/fs") {
+			// If the cgroup2 fs is mounted multiple times, prefer the one in
+			// /sys/fs, which is the "canonical" location.
+			continue
+		}
+		v2.Root = fs[mount]
+		for _, o := range strings.Split(fs[opts], ",") {
+			if o == "ro" {
+				v2.ReadOnly = true
+				break
+			}
+		}
+	}
+	if !v2.Enabled {
+		return
+	}
+	b, err = os.ReadFile(`/proc/self/cgroup`)
+	if err != nil {
+		return
+	}
+	v2.Path = string(b[3 : len(b)-1])
+}
 
 type (
 	cgroupv1Func func(fs.FS, string, string) (int64, int64, error)
